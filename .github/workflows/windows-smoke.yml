@@ -1,0 +1,96 @@
+name: Windows smoke test (released Fast Browser)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to test (for example v1.2.2)
+        required: false
+        default: v1.2.2
+        type: string
+  schedule:
+    - cron: '30 3 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Install and smoke-test on Windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v1.2.2' }}
+      EXPECTED_CHROMIUM: '155.0.8059.12'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download installer and verify its checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = "https://github.com/mustad450-pixel/fast-browser-releases/releases/download/$env:RELEASE_TAG"
+          Invoke-WebRequest -Uri "$base/Fast-Browser-Setup.exe" -OutFile installer.exe -UseBasicParsing
+          Invoke-WebRequest -Uri "$base/Fast-Browser-Setup.exe.sha256.txt" -OutFile installer.sha256.txt -UseBasicParsing
+          $expected = ((Get-Content installer.sha256.txt -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          $actual = (Get-FileHash installer.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "expected sha256: $expected"
+          "actual sha256:   $actual"
+          if ($actual -ne $expected) { throw 'Installer checksum mismatch.' }
+
+      - name: Install silently
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = Start-Process -FilePath installer.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          "installer exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "Installer failed with exit code $($p.ExitCode)" }
+          $chrome = Join-Path $env:LOCALAPPDATA 'Fast Sector\Fast Browser\Application\chrome.exe'
+          if (-not (Test-Path -LiteralPath $chrome)) { throw "chrome.exe not found: $chrome" }
+          $v = (Get-Item -LiteralPath $chrome).VersionInfo.FileVersion
+          "installed chrome version: $v"
+          if ($v -ne $env:EXPECTED_CHROMIUM) { throw "Expected Chromium $env:EXPECTED_CHROMIUM, got $v" }
+          "CHROME_EXE=$chrome" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Start browser with remote debugging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $profile = Join-Path $env:RUNNER_TEMP 'fb-profile'
+          $args = @(
+            '--remote-debugging-port=9222',
+            "--user-data-dir=$profile",
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--headless=new',
+            '--disable-gpu',
+            'about:blank'
+          )
+          Start-Process -FilePath $env:CHROME_EXE -ArgumentList $args
+          $ok = $false
+          for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+            Start-Sleep -Seconds 2
+            try { $null = Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing; $ok = $true } catch {}
+          }
+          if (-not $ok) { throw 'Remote debugging port did not open.' }
+          (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing).Content
+
+      - name: Run New Tab smoke tests
+        working-directory: tests
+        shell: pwsh
+        run: |
+          npm install --no-audit --no-fund
+          node newtab-smoke.js
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-results-${{ env.RELEASE_TAG }}
+          path: tests/out/
+          if-no-files-found: warn
