@@ -43,11 +43,21 @@ jobs:
           "actual sha256:   $actual"
           if ($actual -ne $expected) { throw 'Installer checksum mismatch.' }
 
-      - name: Install silently
+      - name: Install silently (bounded, with logs)
         shell: pwsh
+        timeout-minutes: 15
         run: |
           $ErrorActionPreference = 'Stop'
-          $p = Start-Process -FilePath installer.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          $log = Join-Path $env:RUNNER_TEMP 'installer.log'
+          # No -Wait: the installer may launch Fast Browser, which would block a -Wait forever.
+          $p = Start-Process -FilePath installer.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$log" -PassThru
+          $deadline = (Get-Date).AddMinutes(10)
+          while (-not $p.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
+          if (-not $p.HasExited) {
+            "Installer still running after 10 minutes; stopping it."
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw 'Installer did not finish within 10 minutes.'
+          }
           "installer exit code: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "Installer failed with exit code $($p.ExitCode)" }
           $chrome = Join-Path $env:LOCALAPPDATA 'Fast Sector\Fast Browser\Application\chrome.exe'
@@ -56,6 +66,18 @@ jobs:
           "installed chrome version: $v"
           if ($v -ne $env:EXPECTED_CHROMIUM) { throw "Expected Chromium $env:EXPECTED_CHROMIUM, got $v" }
           "CHROME_EXE=$chrome" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Collect install diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:GITHUB_WORKSPACE 'tests\out\diag'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $log = Join-Path $env:RUNNER_TEMP 'installer.log'
+          if (Test-Path -LiteralPath $log) { Copy-Item -LiteralPath $log -Destination $dest }
+          $upd = Join-Path $env:LOCALAPPDATA 'Fast Sector\Fast Browser\Updater'
+          if (Test-Path -LiteralPath $upd) { Copy-Item -Path (Join-Path $upd '*') -Destination $dest -Force -ErrorAction SilentlyContinue }
+          Get-ChildItem -Recurse -Force $dest | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
 
       - name: Start browser with remote debugging
         shell: pwsh
