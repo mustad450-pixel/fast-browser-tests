@@ -91,15 +91,15 @@ function utf16Contains(buffer, text) {
     check('Tab Usage Timer has a selectable control', hasSelect);
 
     if (hasSelect) {
-      // Wait for the page to load the saved value (up to 15 seconds).
+      // Wait up to 20 seconds for the dropdown to finish loading its options and saved value.
       let state = null;
-      for (let i = 0; i < 15; i++) {
+      for (let i = 0; i < 20; i++) {
         state = await selectHandle.evaluate((s) => ({
           value: s.value,
           label: s.options[s.selectedIndex] ? s.options[s.selectedIndex].text.trim() : '',
           options: Array.from(s.options).map((o) => o.text.trim()),
         }));
-        if (state.options.length > 0 && state.label !== 'Custom') break;
+        if (state.options.length === 3 && state.options.every((o) => o !== 'Custom')) break;
         await sleep(1000);
       }
       results.push(`INFO  initial dropdown label="${state.label}" options=${JSON.stringify(state.options)} saved=${JSON.stringify(readSavedMode())}`);
@@ -109,16 +109,29 @@ function utf16Contains(buffer, text) {
         `options=${JSON.stringify(state.options)}`);
       check('Tab Usage Timer starts on "Off" for a fresh profile', state.label === 'Off', `label=${state.label}`);
 
+      const waitForSaved = async (expected) => {
+        let saved = readSavedMode();
+        for (let i = 0; i < 10 && String(saved.value) !== expected; i++) {
+          await sleep(1000);
+          saved = readSavedMode();
+        }
+        return saved;
+      };
+
       for (const [value, label] of [['1', 'Active Tab'], ['2', 'Browser Session'], ['0', 'Off']]) {
         await selectHandle.evaluate((s, v) => {
           s.value = v;
+          s.dispatchEvent(new Event('input', { bubbles: true }));
           s.dispatchEvent(new Event('change', { bubbles: true }));
         }, value);
-        await sleep(3000); // preferences are written asynchronously
-        const saved = readSavedMode();
-        const now = await selectHandle.evaluate((s) => s.options[s.selectedIndex] ? s.options[s.selectedIndex].text.trim() : '');
+        const saved = await waitForSaved(value);
+        const ui = await selectHandle.evaluate((s) => ({
+          value: s.value,
+          label: s.options[s.selectedIndex] ? s.options[s.selectedIndex].text.trim() : '',
+        }));
+        results.push(`INFO  after selecting "${label}": ui=${JSON.stringify(ui)} saved=${JSON.stringify(saved.value)}`);
         check(`Selecting "${label}" is saved to Preferences`, String(saved.value) === value,
-          `saved=${JSON.stringify(saved.value)} label=${now}`);
+          `saved=${JSON.stringify(saved.value)} ui=${ui.label}`);
       }
     }
   }
