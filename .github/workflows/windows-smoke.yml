@@ -109,6 +109,14 @@ jobs:
           npm install --no-audit --no-fund
           node newtab-smoke.js
 
+      - name: Run native feature checks
+        working-directory: tests
+        env:
+          PROFILE_DIR: ${{ runner.temp }}\fb-profile
+        shell: pwsh
+        run: |
+          node native-smoke.js
+
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
