@@ -64,6 +64,17 @@ function utf16Contains(buffer, text) {
   const dropdownFound = (await dropdownHandle.evaluate((e) => !!e).catch(() => false));
   check('Tab Usage Timer dropdown exists on Appearance page', dropdownFound);
 
+  const profileDir = process.env.PROFILE_DIR || '';
+  const readSavedMode = () => {
+    const prefsFile = findFile(profileDir, 'Preferences');
+    if (!prefsFile) return { file: null, value: 'no Preferences file' };
+    try {
+      const prefs = JSON.parse(fs.readFileSync(prefsFile, 'utf8'));
+      const v = prefs?.fast_browser?.tab_usage_timer_mode;
+      return { file: prefsFile, value: v === undefined ? 'not stored (default 0)' : v };
+    } catch (e) { return { file: prefsFile, value: 'parse error: ' + e.message }; }
+  };
+
   if (dropdownFound) {
     const selectHandle = await dropdownHandle.evaluateHandle((host) => {
       const find = (root) => {
@@ -80,28 +91,35 @@ function utf16Contains(buffer, text) {
     check('Tab Usage Timer has a selectable control', hasSelect);
 
     if (hasSelect) {
-      const optionTexts = await selectHandle.evaluate((s) => Array.from(s.options).map((o) => o.text.trim()));
-      check('Tab Usage Timer lists Off, Active Tab, Browser Session',
-        ['Off', 'Active Tab', 'Browser Session'].every((t) => optionTexts.includes(t)),
-        `options=${JSON.stringify(optionTexts)}`);
-
-      await selectHandle.evaluate((s) => {
-        s.value = '1';
-        s.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-      await sleep(3000); // preferences are written asynchronously
-
-      const profileDir = process.env.PROFILE_DIR || '';
-      const prefsFile = findFile(profileDir, 'Preferences');
-      let saved = null;
-      if (prefsFile) {
-        try {
-          const prefs = JSON.parse(fs.readFileSync(prefsFile, 'utf8'));
-          saved = prefs?.fast_browser?.tab_usage_timer_mode ?? null;
-        } catch (e) { saved = 'parse error: ' + e.message; }
+      // Wait for the page to load the saved value (up to 15 seconds).
+      let state = null;
+      for (let i = 0; i < 15; i++) {
+        state = await selectHandle.evaluate((s) => ({
+          value: s.value,
+          label: s.options[s.selectedIndex] ? s.options[s.selectedIndex].text.trim() : '',
+          options: Array.from(s.options).map((o) => o.text.trim()),
+        }));
+        if (state.options.length > 0 && state.label !== 'Custom') break;
+        await sleep(1000);
       }
-      check('Selecting "Active Tab" is saved to Preferences', saved === 1,
-        `file=${prefsFile || 'not found'} saved=${saved}`);
+      results.push(`INFO  initial dropdown label="${state.label}" options=${JSON.stringify(state.options)} saved=${JSON.stringify(readSavedMode())}`);
+
+      check('Tab Usage Timer options are exactly Off, Active Tab, Browser Session',
+        JSON.stringify(state.options) === JSON.stringify(['Off', 'Active Tab', 'Browser Session']),
+        `options=${JSON.stringify(state.options)}`);
+      check('Tab Usage Timer starts on "Off" for a fresh profile', state.label === 'Off', `label=${state.label}`);
+
+      for (const [value, label] of [['1', 'Active Tab'], ['2', 'Browser Session'], ['0', 'Off']]) {
+        await selectHandle.evaluate((s, v) => {
+          s.value = v;
+          s.dispatchEvent(new Event('change', { bubbles: true }));
+        }, value);
+        await sleep(3000); // preferences are written asynchronously
+        const saved = readSavedMode();
+        const now = await selectHandle.evaluate((s) => s.options[s.selectedIndex] ? s.options[s.selectedIndex].text.trim() : '');
+        check(`Selecting "${label}" is saved to Preferences`, String(saved.value) === value,
+          `saved=${JSON.stringify(saved.value)} label=${now}`);
+      }
     }
   }
 
