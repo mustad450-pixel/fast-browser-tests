@@ -155,8 +155,8 @@ function utf16Contains(buffer, text) {
     const ps = require('child_process').execFileSync('powershell', ['-NoProfile', '-Command',
       `$i=(Get-Item '${exe}').VersionInfo; "$($i.ProductName)|$($i.FileDescription)"`], { encoding: 'utf8' }).trim();
     const [product, desc] = ps.split('|');
-    check('Executable product name contains "Fast Browser"', /Fast Browser/i.test(product || ''), `product="${product}"`);
-    check('Executable description contains "Fast Browser"', /Fast Browser/i.test(desc || ''), `description="${desc}"`);
+    check('Executable product name contains "Fast Krozer"', /Fast Krozer/i.test(product || ''), `product="${product}"`);
+    check('Executable description contains "Fast Krozer"', /Fast Krozer/i.test(desc || ''), `description="${desc}"`);
     const iconOk = require('child_process').execFileSync('powershell', ['-NoProfile', '-Command',
       `Add-Type -AssemblyName System.Drawing; if ([System.Drawing.Icon]::ExtractAssociatedIcon('${exe}')) {'yes'} else {'no'}`],
       { encoding: 'utf8' }).trim();
