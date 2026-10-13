@@ -99,13 +99,26 @@ jobs:
             '--disable-gpu',
             'about:blank'
           )
-          Start-Process -FilePath $env:CHROME_EXE -ArgumentList $args
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'tests\out\diag'
+          New-Item -ItemType Directory -Force -Path $diag | Out-Null
+          $p = Start-Process -FilePath $env:CHROME_EXE -ArgumentList $args -PassThru -RedirectStandardError (Join-Path $diag 'chrome-stderr.txt') -RedirectStandardOutput (Join-Path $diag 'chrome-stdout.txt')
           $ok = $false
           for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
             Start-Sleep -Seconds 2
             try { $null = Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing; $ok = $true } catch {}
           }
-          if (-not $ok) { throw 'Remote debugging port did not open.' }
+          if (-not $ok) {
+            "browser process hasExited=$($p.HasExited) exitCode=$(if ($p.HasExited) { $p.ExitCode } else { 'running' })" | Out-File (Join-Path $diag 'status.txt')
+            try {
+              Get-WinEvent -LogName Application -MaxEvents 200 -ErrorAction Stop |
+                Where-Object { $_.Message -match 'chrome|Fast|Krozer|Windows Error Reporting' } |
+                Select-Object -First 30 TimeCreated, Id, ProviderName, Message |
+                Format-List | Out-File (Join-Path $diag 'events.txt')
+            } catch { "event log read failed: $_" | Out-File (Join-Path $diag 'events.txt') }
+            Get-Process -Name chrome -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, StartTime | Out-File (Join-Path $diag 'processes.txt')
+            Stop-Process -Name chrome -Force -ErrorAction SilentlyContinue
+            throw 'Remote debugging port did not open.'
+          }
           (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing).Content
 
       - name: Run New Tab smoke tests
