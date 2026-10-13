@@ -116,7 +116,7 @@ jobs:
           )
           $diag = Join-Path $env:GITHUB_WORKSPACE 'tests\out\diag'
           New-Item -ItemType Directory -Force -Path $diag | Out-Null
-          $p = Start-Process -FilePath $env:CHROME_EXE -ArgumentList $args -PassThru -RedirectStandardError (Join-Path $diag 'chrome-stderr.txt') -RedirectStandardOutput (Join-Path $diag 'chrome-stdout.txt')
+          $p = Start-Process -FilePath $env:CHROME_EXE -ArgumentList $args -PassThru
           $ok = $false
           for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
             Start-Sleep -Seconds 2
