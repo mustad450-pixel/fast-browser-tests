@@ -82,4 +82,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log(results.join('\n'));
   await browser.disconnect();
   process.exit(failures === 0 ? 0 : 1);
-})().catch((e) => { console.error('HARNESS ERROR: ' + e.message); process.exit(2); });
+})().catch((e) => {
+  const msg = 'HARNESS ERROR: ' + (e && e.stack ? e.stack : e);
+  console.error(msg);
+  try {
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, 'results.txt'), msg + '\n');
+  } catch (_) {}
+  process.exit(2);
+});
