@@ -8,6 +8,11 @@ on:
         required: false
         default: v1.2.2
         type: string
+      release_repo:
+        description: Repository that hosts the release (owner/name)
+        required: false
+        default: mustad450-pixel/fast-browser-releases
+        type: string
   schedule:
     - cron: '30 3 * * *'
 
@@ -21,6 +26,7 @@ jobs:
     timeout-minutes: 45
     env:
       RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v1.2.2' }}
+      RELEASE_REPO: ${{ github.event.inputs.release_repo || 'mustad450-pixel/fast-browser-releases' }}
       EXPECTED_CHROMIUM: '155.0.8059.12'
 
     steps:
@@ -34,7 +40,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $base = "https://github.com/mustad450-pixel/fast-browser-releases/releases/download/$env:RELEASE_TAG"
+          $base = "https://github.com/$env:RELEASE_REPO/releases/download/$env:RELEASE_TAG"
           Invoke-WebRequest -Uri "$base/Fast-Browser-Setup.exe" -OutFile installer.exe -UseBasicParsing
           Invoke-WebRequest -Uri "$base/Fast-Browser-Setup.exe.sha256.txt" -OutFile installer.sha256.txt -UseBasicParsing
           $expected = ((Get-Content installer.sha256.txt -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
