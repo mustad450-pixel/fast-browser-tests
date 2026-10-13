@@ -94,10 +94,11 @@ jobs:
           $exe = Join-Path $env:LOCALAPPDATA 'Fast Sector\Fast Browser\Application\chrome.exe'
           "exe exists: $(Test-Path -LiteralPath $exe)" | Out-File (Join-Path $diag 'probe.txt')
           Get-ChildItem (Split-Path $exe) -File | Select-Object Name, Length | Format-Table -AutoSize | Out-String -Width 200 | Out-File (Join-Path $diag 'probe.txt') -Append
-          $out = & cmd /c "`"$exe`" --version 2>&1"
-          "version exit=$LASTEXITCODE output=$out" | Out-File (Join-Path $diag 'probe.txt') -Append
-          $dom = Start-Process -FilePath $exe -ArgumentList '--headless=new','--disable-gpu','--no-first-run','--user-data-dir=' + (Join-Path $env:RUNNER_TEMP 'probe-profile'),'--dump-dom','about:blank' -PassThru -Wait -NoNewWindow -RedirectStandardOutput (Join-Path $diag 'probe-dom.txt') -RedirectStandardError (Join-Path $diag 'probe-err.txt') -ErrorAction SilentlyContinue
-          "dump-dom exit=$($dom.ExitCode)" | Out-File (Join-Path $diag 'probe.txt') -Append
+          $vp = Start-Process -FilePath $exe -ArgumentList '--version' -PassThru -NoNewWindow -RedirectStandardOutput (Join-Path $diag 'probe-version.txt') -RedirectStandardError (Join-Path $diag 'probe-version-err.txt')
+          if (-not $vp.WaitForExit(30000)) { Stop-Process -Id $vp.Id -Force -ErrorAction SilentlyContinue; "version: timed out after 30s" | Out-File (Join-Path $diag 'probe.txt') -Append } else { "version exit=$($vp.ExitCode)" | Out-File (Join-Path $diag 'probe.txt') -Append }
+          $dp = Start-Process -FilePath $exe -ArgumentList '--headless=new','--disable-gpu','--no-first-run','--user-data-dir=' + (Join-Path $env:RUNNER_TEMP 'probe-profile'),'--dump-dom','about:blank' -PassThru -NoNewWindow -RedirectStandardOutput (Join-Path $diag 'probe-dom.txt') -RedirectStandardError (Join-Path $diag 'probe-err.txt')
+          if (-not $dp.WaitForExit(60000)) { Stop-Process -Id $dp.Id -Force -ErrorAction SilentlyContinue; "dump-dom: timed out after 60s (killed)" | Out-File (Join-Path $diag 'probe.txt') -Append } else { "dump-dom exit=$($dp.ExitCode)" | Out-File (Join-Path $diag 'probe.txt') -Append }
+          Stop-Process -Name chrome -Force -ErrorAction SilentlyContinue
 
       - name: Start browser with remote debugging
         shell: pwsh
