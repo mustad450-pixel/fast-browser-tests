@@ -85,6 +85,20 @@ jobs:
           if (Test-Path -LiteralPath $upd) { Copy-Item -Path (Join-Path $upd '*') -Destination $dest -Force -ErrorAction SilentlyContinue }
           Get-ChildItem -Recurse -Force $dest | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
 
+      - name: Probe browser startup (direct run)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $diag = Join-Path $env:GITHUB_WORKSPACE 'tests\out\diag'
+          New-Item -ItemType Directory -Force -Path $diag | Out-Null
+          $exe = Join-Path $env:LOCALAPPDATA 'Fast Sector\Fast Browser\Application\chrome.exe'
+          "exe exists: $(Test-Path -LiteralPath $exe)" | Out-File (Join-Path $diag 'probe.txt')
+          Get-ChildItem (Split-Path $exe) -File | Select-Object Name, Length | Format-Table -AutoSize | Out-String -Width 200 | Out-File (Join-Path $diag 'probe.txt') -Append
+          $out = & cmd /c "`"$exe`" --version 2>&1"
+          "version exit=$LASTEXITCODE output=$out" | Out-File (Join-Path $diag 'probe.txt') -Append
+          $dom = Start-Process -FilePath $exe -ArgumentList '--headless=new','--disable-gpu','--no-first-run','--user-data-dir=' + (Join-Path $env:RUNNER_TEMP 'probe-profile'),'--dump-dom','about:blank' -PassThru -Wait -NoNewWindow -RedirectStandardOutput (Join-Path $diag 'probe-dom.txt') -RedirectStandardError (Join-Path $diag 'probe-err.txt') -ErrorAction SilentlyContinue
+          "dump-dom exit=$($dom.ExitCode)" | Out-File (Join-Path $diag 'probe.txt') -Append
+
       - name: Start browser with remote debugging
         shell: pwsh
         run: |
